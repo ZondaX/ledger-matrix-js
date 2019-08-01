@@ -263,3 +263,76 @@ test('compare signatures', async () => {
 
     expect(serializedTx.toString('hex')).toEqual(serializedTx2.toString('hex'));
 });
+
+test('compare signatures 2', async () => {
+    jest.setTimeout(60000);
+
+    const rawTx = {
+        nonce: '0x00',
+        gasPrice: '0x0430e23400',
+        gasLimit: '0x033450',
+        to: 'MAN.5xYzBHrJfXeJi9yQ8Qq8hvm19bU4',
+        value: '0x00',
+        data: '0x',
+        chainId: 3,
+        v: '0x3',
+        r: '0x',
+        s: '0x',
+        TxEnterType: '0x',
+        IsEntrustTx: '0x',
+        CommitTime: 1564545105,
+        extra_to: [[0, 0, [
+            ['MAN.2WeBpo7BxfUxVmryJrqLSAKwxMW2U', '0x2c68af0bb140000', '0x'],
+            ['MAN.2izwMiCSYWjTKfazv1qUaoQzDFJPG', '0x2c68af0bb140000', '0x'],
+        ]]],
+    };
+
+    // //////////////////////////////////////////////////////////
+    // FIRST TRY SIGNING USING THE ORIGINAL CODE
+
+    const tx = new Transaction(rawTx, true);
+
+    // Sign standard way
+    let serializedTx = tx.serialize();
+    console.log(serializedTx.toString('hex'));
+
+    tx.sign(testSK);
+
+    // R 6b1fbfd85fccd0c1523706b1d6ce27660e0c5c838c7424d16b4bcc4f9b06ee2e
+    // S c293863a7ca585631b32720d5b6aa512bf1d2bf6c6376c9318dc67e2fc4254e1
+
+    serializedTx = tx.serialize();
+    const txData = tx.getTxParams(serializedTx);
+    console.log(txData);
+
+    // //////////////////////////////////////////////////////////
+    // NOW SIGN WITH A LEDGER
+    const transport = await TransportNodeHid.create(1000);
+    transport.setDebugMode(true);
+
+    let tx2 = new Transaction(rawTx, true);
+    let serializedTx2 = tx2.serialize();
+
+    const app = new MatrixApp(transport);
+    const responseSign = await app.sign(0, 0, 0, serializedTx2);
+
+    console.log(responseSign);
+    expect(responseSign.return_code)
+        .toEqual(0x9000);
+
+    // Replace and reserialize
+    rawTx.v = '0x' + (parseInt(responseSign.v.toString('hex'), 16) + (rawTx.chainId * 2 + 8)).toString(16);
+    rawTx.r = '0x' + responseSign.r.toString('hex');
+    rawTx.s = '0x' + responseSign.s.toString('hex');
+    tx2 = new Transaction(rawTx, true);
+    serializedTx2 = tx2.serialize();
+
+    // //////////////////////////////////////////////////////////
+    // NOW COMPARE SIGNED SERIALIZED TXS
+
+    console.log(serializedTx.toString('hex'));
+    console.log(serializedTx2.toString('hex'));
+
+    expect(serializedTx.toString('hex'))
+        .toEqual(serializedTx2.toString('hex'));
+});
