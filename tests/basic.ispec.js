@@ -149,7 +149,7 @@ test('sign2_and_verify', async () => {
     expect(signatureOK).toEqual(true);
 
     // Check S,R signature
-    signature = Buffer.concat([responseSign.s, responseSign.r]);
+    signature = Buffer.concat([responseSign.r, responseSign.s]);
     signatureOK = secp256k1.verify(msgHash, signature, Buffer.from(responseAddr.pubKey, 'hex'));
     expect(signatureOK).toEqual(true);
 
@@ -186,7 +186,7 @@ test('sign3_and_verify', async () => {
     expect(signatureOK).toEqual(true);
 
     // Check S,R signature
-    signature = Buffer.concat([responseSign.s, responseSign.r]);
+    signature = Buffer.concat([responseSign.r, responseSign.s]);
     signatureOK = secp256k1.verify(msgHash, signature, Buffer.from(responseAddr.pubKey, 'hex'));
     expect(signatureOK).toEqual(true);
 });
@@ -335,4 +335,56 @@ test('compare signatures 2', async () => {
 
     expect(serializedTx.toString('hex'))
         .toEqual(serializedTx2.toString('hex'));
+});
+
+test('bad tx type', async () => {
+    jest.setTimeout(60000);
+
+    const rawTx = {
+        nonce: '0x00',
+        gasPrice: '0x0430e23400',
+        gasLimit: '0x033450',
+        to: 'MAN.5xYzBHrJfXeJi9yQ8Qq8hvm19bU4',
+        value: '0x00',
+        data: '0x',
+        chainId: 3,
+        v: '0x3',
+        r: '0x',
+        s: '0x',
+        TxEnterType: '0x',
+        IsEntrustTx: '0x',
+        CommitTime: 1564545105,
+        extra_to: [[1000, 0, []]],
+    };
+
+    // //////////////////////////////////////////////////////////
+    // FIRST TRY SIGNING USING THE ORIGINAL CODE
+
+    const tx = new Transaction(rawTx, true);
+
+    // Sign standard way
+    let serializedTx = tx.serialize();
+    console.log(serializedTx.toString('hex'));
+
+    tx.sign(testSK);
+
+    // R 6b1fbfd85fccd0c1523706b1d6ce27660e0c5c838c7424d16b4bcc4f9b06ee2e
+    // S c293863a7ca585631b32720d5b6aa512bf1d2bf6c6376c9318dc67e2fc4254e1
+
+    serializedTx = tx.serialize();
+    const txData = tx.getTxParams(serializedTx);
+
+    // //////////////////////////////////////////////////////////
+    // NOW SIGN WITH A LEDGER
+    const transport = await TransportNodeHid.create(1000);
+    transport.setDebugMode(true);
+
+    let tx2 = new Transaction(rawTx, true);
+    let serializedTx2 = tx2.serialize();
+
+    const app = new MatrixApp(transport);
+    const responseSign = await app.sign(0, 0, 0, serializedTx2);
+
+    console.log(responseSign);
+    expect(responseSign.return_code).toEqual(0x6984);
 });

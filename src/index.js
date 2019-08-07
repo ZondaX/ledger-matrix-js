@@ -48,11 +48,6 @@ const ERROR_DESCRIPTION = {
     0x6F01: 'Sign/verify error',
 };
 
-function errorCodeToString(statusCode) {
-    if (statusCode in ERROR_DESCRIPTION) return ERROR_DESCRIPTION[statusCode];
-    return `Unknown Status Code: ${statusCode}`;
-}
-
 export default class MatrixApp {
     constructor(transport, scrambleKey = 'MAN') {
         if (typeof transport === 'undefined') {
@@ -77,16 +72,15 @@ export default class MatrixApp {
                 (response) => {
                     const errorCodeData = response.slice(-2);
                     const errorCode = errorCodeData[0] * 256 + errorCodeData[1];
-                    const answer = {
+                    return {
                         test_mode: response[0] !== 0,
                         major: response[1],
                         minor: response[2],
                         patch: response[3],
                         device_locked: response[4] === 1,
                         return_code: errorCode,
-                        error_message: errorCodeToString(errorCode),
+                        error_message: MatrixApp.errorCodeToString(errorCode),
                     };
-                    return answer;
                 },
             );
     }
@@ -133,7 +127,7 @@ export default class MatrixApp {
                         address: response.slice(65, response.length - 2)
                             .toString('ascii'),
                         return_code: errorCode,
-                        error_message: errorCodeToString(errorCode),
+                        error_message: MatrixApp.errorCodeToString(errorCode),
                     };
                 },
             );
@@ -157,10 +151,23 @@ export default class MatrixApp {
         return chunks;
     }
 
+    static errorCodeToString(statusCode) {
+        if (statusCode in ERROR_DESCRIPTION) return ERROR_DESCRIPTION[statusCode];
+        return `Unknown Status Code: ${statusCode}`;
+    }
+
     static processErrorResponse(response) {
+        let returnCode = 0x6F00;
+        if ('statusCode' in response) {
+            returnCode = response.statusCode;
+        }
+        if ('return_code' in response) {
+            returnCode = response.return_code;
+        }
+
         return {
-            return_code: response.statusCode,
-            error_message: errorCodeToString(response.statusCode),
+            return_code: returnCode,
+            error_message: MatrixApp.errorCodeToString(returnCode),
         };
     }
 
@@ -173,7 +180,7 @@ export default class MatrixApp {
                 (response) => {
                     const errorCodeData = response.slice(-2);
                     const returnCode = errorCodeData[0] * 256 + errorCodeData[1];
-                    let errorMessage = errorCodeToString(returnCode);
+                    let errorMessage = MatrixApp.errorCodeToString(returnCode);
 
                     if (returnCode === 0x6A80) {
                         errorMessage = response.slice(0, response.length - 2)
@@ -197,15 +204,20 @@ export default class MatrixApp {
 
     async sign(account, change, addressIndex, message) {
         const chunks = MatrixApp.signGetChunks(account, change, addressIndex, message);
-        return this.signSendChunk(1, chunks.length, chunks[0], [0x9000])
+        return this.signSendChunk(1, chunks.length, chunks[0], [0x9000, 0x6984])
             .then(
                 async (result) => {
                     for (let i = 1; i < chunks.length; i += 1) {
                         // eslint-disable-next-line no-await-in-loop,no-param-reassign
-                        result = await this.signSendChunk(1 + i, chunks.length, chunks[i]);
+                        result = await this.signSendChunk(1 + i, chunks.length, chunks[i],
+                            [0x9000, 0x6984]);
                         if (result.return_code !== 0x9000) {
-                            break;
+                            return MatrixApp.processErrorResponse(result);
                         }
+                    }
+
+                    if (result.return_code !== 0x9000) {
+                        return MatrixApp.processErrorResponse(result);
                     }
 
                     const v = result.signature.slice(0, 1);
